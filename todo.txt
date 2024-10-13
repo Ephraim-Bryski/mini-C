@@ -1,0 +1,68 @@
+what i have so far
+    comments
+    #include (checks circular dependencies)
+    branches (if)
+    loops (for and while) with continue and break
+    functions with parameters and return statements, supports recursion
+    nested blocks
+    nested expressions
+    arithmetic and logical operators
+    variable and global scope (declaration vs. assignment)
+    types (int, char, structs, and arbitrary pointer levels), strict type checking, and type casting
+    array and string literals
+    nested data structures (AoA, SoA, AoS)
+    intrinsics: sizeof, and my own made up ones (_print_int, _print_char, _halt)
+    error(message), this is not in C, just prints the error and terminates execution
+    libraries:
+        strings: length, print string etc.
+        memory allocator
+        dynamic arrays that use the memory allocator
+    
+things i'll deal with later (maybe)
+    <random characters> <variable>; doesnt return an error
+    allows functions and variables to share the same name
+        is it reallyyy a problem though
+    int a = 255+2 will equal 1
+        each of them are less than 256, so i make them both 8bit (char)
+        adding them together is then 8bit too, so overflows
+    assumes that a leaf starting in open parentheses is a type cast
+        e.g. (array)[0]
+    hack at the end for the tester only works if main outputs char
+        a bit hard to deal with cause i wouldn't know if it's an int or char in the tester
+            could just always return intsS
+    mypy errors
+        token properties
+        None flags, probably will just keep
+        allocatetostack, string or None for variable name
+        global syntax tree
+        structfieldsize for getleafasm is None
+        function indirection for getting asm
+        globalsyntaxtree not defined
+    refactor
+        same way of dividing parsing and asm generation into functions (i.e. line vs. block vs different types of blocks)
+
+
+change target to 6502 assembly
+    write an assembler too?
+
+future things to add
+    enums and maybe unions
+    signed integers
+    cleaner error messages
+        get line in source code
+
+bootstrap??
+
+
+
+
+
+
+
+
+
+
+
+
+
+
