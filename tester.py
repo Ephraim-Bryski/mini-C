@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 from typing import Union
 from typing import Any
-from emulator import emulate_assembly
+# from archive/avr_emulator import emulate_assembly
 import compiler
 from importlib import reload
-
+import emulator_6502
+import assembler_6502
 
 
 @dataclass
@@ -13,6 +14,8 @@ class Test_Case:
     expected_result: Any
 
 test_cases = [
+    
+
     Test_Case("comments.c", 4),
     Test_Case("var_starts_with_number.c", compiler.LexException),
     Test_Case("unmatched_parentheses.c", compiler.ParseException),
@@ -64,10 +67,26 @@ n_failed = 0
 for test in test_cases:
     try:
         reload(compiler)
-        assembly = compiler.compile(f"tests/{test.file_name}")
-        registers = emulate_assembly(assembly)
-        final_output = registers[compiler.TEMP_REG]
+        reload(emulator_6502)
+        reload(assembler_6502)
+
+        path = f"tests/{test.file_name}"
+
+
+        
+        assembly = compiler.compile(path)
+
+        # using the vasm assembler slows things down a lot (cause it has to write and read the file presumably) 
+        binary = assembler_6502.assemble(assembly, compare_with_vasm=False)
+        final_output = emulator_6502.emulate_binary(binary)
+
+        # registers = emulate_assembly(assembly)
+        # final_output = registers[compiler.TEMP_REG]
+
+
         test_passed = final_output == test.expected_result
+
+
     except Exception as e:
         final_output = f"{type(e)}, {e}"
         # since im reloading the compiler, the actual objects are different

@@ -6,3 +6,7 @@ char add(char a, char b){
 char main(){
     return add(3,4);
 }
+
+char irq(){
+    
+}

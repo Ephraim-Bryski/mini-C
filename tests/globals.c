@@ -10,3 +10,7 @@ char main(){
     int hello = 100;
     return bop()+hello;
 }
+
+char irq(){
+    
+}

@@ -3,3 +3,7 @@ char main(){
     // a = a + 3;
     return a;
 }
+
+char irq(){
+    
+}

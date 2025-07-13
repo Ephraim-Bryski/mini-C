@@ -5,3 +5,7 @@ char bop(char a){
 char main(){
     char* c = bop(7);
 }
+
+char irq(){
+    
+}

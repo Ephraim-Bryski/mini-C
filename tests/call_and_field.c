@@ -18,3 +18,7 @@ char main(){
     char b_val = get_struct().b;
     return b_val + c_val;
 }
+
+char irq(){
+    
+}

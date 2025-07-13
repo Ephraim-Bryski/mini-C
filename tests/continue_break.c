@@ -20,3 +20,7 @@ char main(){
     return i;
 
 }
+
+char irq(){
+    
+}

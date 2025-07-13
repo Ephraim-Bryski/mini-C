@@ -6,3 +6,7 @@ char main(){
 
     
 }
+
+char irq(){
+    
+}

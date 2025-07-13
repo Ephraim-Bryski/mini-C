@@ -8,3 +8,7 @@ char main(){
     return 20;
     
 }
+
+char irq(){
+    
+}

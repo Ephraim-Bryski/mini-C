@@ -185,7 +185,7 @@ int print_allocations(){
         for (location = (int) block.start; location< (int) block.end; location+=int_size){
             int* location_address = (int*) location;
             _print_int(location_address[0]);
-            _print_char(',');
+            print_char(',');
         }
         
         

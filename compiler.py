@@ -19,7 +19,7 @@ import os
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Union
-from architecture import *
+from compiler_architecture import *
 # REFACTOR
 # i probably want a struct for each of these (chartokens, twochartokens, optokens etc)
 # then the individual ones (equal, semicolon, comma etc.) would be enum values
@@ -41,9 +41,6 @@ class UndefinedException(Exception): pass
 class ArgumentMismatchException(Exception): pass
 
 class NotImplementedYetException(Exception): pass
-
-# wont matter once i put stuff on the stack instead
-class RegisterSpaceException(Exception): pass
 
 # maybe these should also be type exceptions?
 class StructException(Exception): pass
@@ -149,12 +146,14 @@ CHAR_TOKENS.append(SEMICOLON)
 class COMMA: char = ","
 CHAR_TOKENS.append(COMMA)
 
-class AMPERSAND: char = "&"
-CHAR_TOKENS.append(AMPERSAND)
+class REFERENCE: char = "&"
+CHAR_TOKENS.append(REFERENCE)
 
 class SINGLE_QUOTE: char = "'"
 
 class DOUBLE_QUOTE: char = '"'
+
+
 
 class OR:
     chars = "||"
@@ -258,7 +257,17 @@ class DIVIDE:
 CHAR_TOKENS.append(DIVIDE)
 OP_TOKENS.append(DIVIDE)
 
+class BIT_OR:
+    char = "|"
+    order_weight = 3
+CHAR_TOKENS.append(BIT_OR)
+OP_TOKENS.append(BIT_OR)
 
+class BIT_AND:
+    char = "&"
+    order_weight = 4
+CHAR_TOKENS.append(BIT_AND)
+OP_TOKENS.append(BIT_AND)
 
 class NOT: char = "!"
 CHAR_TOKENS.append(NOT)
@@ -369,12 +378,28 @@ def lex_alpha_num(chars: list[str]) -> Token:
 
     # i'm not doing any fancy introspection on Types since i won't be able to when i bootstrap
     
-    
-    
     if text == "char":
         return Base_Types.INT8
     elif text == "int":
         return Base_Types.INT16
+
+    if text.startswith("0b"):
+        # removing the underscores so i can do stuff like 10_01_11_10 (easier to read)
+        binary_number = text[2:].replace("_","")
+        try:
+            value = int(binary_number, 2)
+        except:
+            raise LexException(f"{binary_number} is an invalid binary number")
+        return NUMBER(value)
+    
+    if text.startswith("0x"):
+        hex_number = text[2:]
+        try:
+            value = int(hex_number, 16)
+        except:
+            raise LexException(f"{hex_number} is an invalid hexadecimal number")
+        return NUMBER(value)
+    
 
     starts_with_number = chars[0].isnumeric()
     number_chars = list(filter(lambda x:(x.isnumeric()), chars))
@@ -460,10 +485,25 @@ def lex_text(characters: str) -> list[Token]:
                 tokens.append(token())
                 char_jump = 2
 
+        # this is just to know if the & is a reference or a bitwise and
+        # REFACTOR really ugly and brittle, very likely im missing something
+        # really should be done in parsing not lexing
+        is_after_value = len(tokens) > 0 and type(tokens[-1]) in [NUMBER, VARIABLE, CLOSED_BRACKET, CHAR, STRING]
+
         for token in CHAR_TOKENS:
+
+            if token is REFERENCE and is_after_value:
+                continue
+            if token is BIT_AND and not is_after_value:
+                continue
+
             if is_special_two_char: break
             if char == token.char:
+
                 is_valid_char = True
+
+
+
                 tokens.append(token())
 
         if char == " ":
@@ -973,7 +1013,7 @@ def parse_leaf(tokens: list[Token]) -> Tree:
         token = tokens[token_idx]
 
 
-        if type(token) is AMPERSAND:
+        if type(token) is REFERENCE:
             if token_idx != 0: raise ParseException()
             if len(tokens) != 2: raise ParseException()
             variable_token = tokens[token_idx+1]
@@ -1435,12 +1475,15 @@ def get_size_match_assembly(target_type: Type, source_type: Type, structs: list[
 
     if target_size > source_size:
         difference = target_size - source_size
-        fill_assembly = [f"ldi {TEMP_REG}, 0"]
-        fill_assembly += [f"push {TEMP_REG}"] * difference
+        fill_assembly = [load_immediate(0)]
+        # fill_assembly = [f"ldi {TEMP_REG}, 0"]
+        fill_assembly += [push()] * difference
+        # fill_assembly += [f"push {TEMP_REG}"] * difference
         return fill_assembly
     else:
         difference = source_size - target_size
-        return [f"pop {TEMP_REG}"] * difference
+        return [pop()] * difference
+        # return [f"pop {TEMP_REG}"] * difference
 
 
 
@@ -1656,8 +1699,408 @@ def get_jump_point(jump_type: str) -> str:
 
 
 
-def get_multiply_assembly(expression:Operation, variables: list[list[Variable_Allocated]], structs: list[list[Struct]]) -> list[Any]:
+"""
+both immediate and memory:
+    store
+    add
+    subtract
 
+call and return
+
+set main
+    avr: .global main
+    6502: include code that sets the reset address
+
+also for 6502, intialize the stack pointer
+
+    
+
+indirect load and store
+
+for the ones that are the same (e.g. brne) i still need it indented for the 6502
+    i could just have something at the end that indents all lines that don't contain a colon
+
+    
+
+multiply
+
+"""
+
+
+class Target(Enum):
+    _6502 = auto()
+    AVR = auto()
+
+
+TARGET = Target._6502
+
+
+
+def load_immediate(value: int) -> str:
+    return {
+        Target.AVR: f"ldi {TEMP_REG}, {value}",
+        Target._6502: f"lda #{value}"
+    }[TARGET]
+
+
+def load_immediate_right_side(value: int) -> list[str]:
+    if TARGET == Target.AVR:
+        return [f"ldi {RIGHT_TEMP_REG}, {value}"]
+    else:
+        return [
+            f"ldx #{value}",
+            f"stx {RIGHT_SIDE_6502}"
+        ]
+
+
+def load_from_memory(address: int) -> str:
+    return {
+        Target.AVR: f"lds {TEMP_REG}, {address}",
+        Target._6502: f"lda {address}"
+    }[TARGET]
+
+def store_to_memory(address: int) -> str:
+    return {
+        Target.AVR: f"sts {address}, {TEMP_REG}",
+        Target._6502: f"sta {address}"
+    }[TARGET]
+
+
+def set_stack_pointer_from_memory(address_low, address_high) -> list[str]:
+    """
+    value in memory sent to stack pointer 
+    sp = mem
+    """
+    match TARGET:
+        case Target.AVR:
+            return [
+                f"lds {TEMP_REG}, {address_low}",
+                f"sts {SP_ADDRESS_LOW}, {TEMP_REG}",
+                f"lds {TEMP_REG}, {address_high}",
+                f"sts {SP_ADDRESS_HIGH}, {TEMP_REG}"
+            ]
+        
+        case Target._6502:
+            return [
+                f"lda {address_low}",
+                f"tax",
+                f"txs"
+            ]
+        case _: assert False
+
+def set_stack_pointer_from_memory_with_offset(address_low, address_high, negative_offset) -> list[str]:
+    """
+    value in memory sent to stack pointer 
+    sp = mem
+    """
+    match TARGET:
+        case Target.AVR:
+            return [
+                f"lds {TEMP_REG}, {address_low}",
+                f"subi {TEMP_REG}, {negative_offset}",
+                f"sts {SP_ADDRESS_LOW}, {TEMP_REG}",
+                f"lds {TEMP_REG}, {address_high}",
+                f"sbci {TEMP_REG}, 0",
+                f"sts {SP_ADDRESS_HIGH}, {TEMP_REG}"
+            ]
+        
+        case Target._6502:
+            return [
+                f"sec",
+                f"lda {address_low}",
+                f"sbc #{negative_offset}",
+                f"tax",
+                f"txs"
+            ]
+        case _: assert False
+
+def set_memory_from_stack_pointer(address_low, address_high) -> list[str]:
+
+    """
+    used for strings and arrays
+    pushes the address of the last element on the stack
+    since the sp points to the next slot, you add one
+    mem=sp
+    """
+
+    match TARGET:
+        case Target.AVR:
+            return [
+                f"lds {TEMP_REG}, {SP_ADDRESS_LOW}",
+                f"sts {address_low}, {TEMP_REG}",
+                f"lds {TEMP_REG}, {SP_ADDRESS_HIGH}",
+                f"sts {address_high}, {TEMP_REG}",
+            ]
+        case Target._6502:
+            # for 6502 the stack pointer is only one byte
+            # (the high byte is always 1)
+            return [
+                "tsx",
+                f"stx {address_low}",
+                f"lda #1",
+                f"sta {address_high}"
+            ]
+        case _: assert False
+
+
+def prepare_indirect_from_memory(address_low: int, address_high: int) -> list[str]:
+    
+    """
+    used for assigning a value to a variable
+    stored at some location offset from the base pointer
+    basse pointer is the address low and high
+    """
+
+    if TARGET == Target.AVR:
+        return [
+            f"lds {X_LOW}, {address_low}",
+            f"lds {X_HIGH}, {address_high}",
+        ]
+    else:
+        return [
+            f"lda {address_low}",
+            f"sta {LOW_INDIRECT_6502}",
+            f"lda {address_high}",
+            f"sta {HIGH_INDIRECT_6502}",
+        ]
+
+
+def prepare_indirect_from_memory_with_offset(address_low: int, address_high: int, negative_offset: int) -> list[str]:
+    
+    """
+    used for assigning a value to a variable
+    stored at some location offset from the base pointer
+    basse pointer is the address low and high
+
+    negative offset is kind of ugly to have as a parameter
+    for 6502 only positive offset allowed, so im lumping negative offset in here
+
+    alternative would be subtracting after but then i would have to do this
+    then load back to the accumulator
+    then subtract
+    then store it back
+
+    for avr it's not an issue cause im using the x registers, which i can subtract from directly
+    """
+
+    if TARGET == Target.AVR:
+        return [
+            f"lds {X_LOW}, {address_low}",
+            f"lds {X_HIGH}, {address_high}",
+            f"subi {X_LOW}, {negative_offset}",
+            f"sbci {X_HIGH}, 0",
+        ]
+    else:
+        return [
+            "",
+            "; prepare indirect memory offset:",
+            "sec",
+            f"lda {address_low}",
+            f"sbc #{negative_offset}",
+            f"sta {LOW_INDIRECT_6502}",
+            f"lda {address_high}",
+            f"sbc #{0}",
+            f"sta {HIGH_INDIRECT_6502}",
+        ]
+
+
+
+def prepare_indirect_from_stack_pointer() -> list[str]:
+    if TARGET == Target.AVR:
+        return [
+            f"lds {X_LOW}, {SP_ADDRESS_LOW}",
+            f"lds {X_HIGH}, {SP_ADDRESS_HIGH}"
+        ]
+    else:
+        return [
+            "tsx",
+            f"stx {LOW_INDIRECT_6502}",
+            f"ldx #1 ; high byte of stack pointer",
+            f"stx {HIGH_INDIRECT_6502}",
+        ]
+
+def load_indirect_with_offset(offset) -> list[str]:
+    if TARGET == Target.AVR:
+        return [f"ldd {TEMP_REG}, X+{offset}"]
+    else:
+        if offset < 0: raise Exception("not sure how to do negative offset for 6502")
+        return [
+            "",
+            "; load indirect:",
+            f"ldy #{offset}",
+            f"lda ({LOW_INDIRECT_6502}),Y"
+        ]
+    
+
+def load_indirect_right_side_with_offset(offset) -> list[str]:
+    if TARGET == Target.AVR:
+        return [f"ldd {RIGHT_TEMP_REG}, X+{offset}"]
+    else:
+        if offset < 0: raise Exception("not sure how to do negative offset for 6502")
+        # in this case case im trying to load using y indirect
+        # then store the value
+        # sadly ldx doesn't have indirect mode
+        return [
+            "pha",
+            f"ldy #{offset}",
+            f"lda ({LOW_INDIRECT_6502}),Y",
+            f"sta {RIGHT_SIDE_6502}",
+            "pla"
+        ]
+
+def store_indirect_with_offset(offset) -> list[str]:
+    if TARGET == Target.AVR:
+        return [f"std X+{offset}, {TEMP_REG}"]
+    else:
+        if offset < 0: raise Exception("not sure how to do negative offset for 6502")
+        return [
+            f"ldy #{offset}",
+            f"sta ({LOW_INDIRECT_6502}),Y"
+        ]
+    
+def compare_two_sides() -> str:
+    return {
+        Target.AVR: f"cp {TEMP_REG}, {RIGHT_TEMP_REG}",
+        Target._6502: f"cmp {RIGHT_SIDE_6502}"
+    }[TARGET]
+    
+
+
+    
+def push() -> str:
+    return {
+        Target.AVR: f"push {TEMP_REG}",
+        Target._6502: "pha"
+    }[TARGET]
+
+def pop() -> str:
+    return {
+        Target.AVR: f"pop {TEMP_REG}",
+        Target._6502: "pla" 
+    }[TARGET]
+            
+
+def compare_immediate(value: int) -> str:
+    return {
+        Target.AVR: f"cpi {TEMP_REG}, {value}",
+        Target._6502: f"cmp #{value}"
+    }[TARGET]
+
+
+def compare_from_memory(address: int) -> str:
+    return {
+        Target.AVR: f"cp {TEMP_REG}, {address}",
+        Target._6502: f"cmp {address}"
+    }[TARGET]
+
+def call_subroutine(name: str) -> str:
+    return {
+        Target.AVR: f"call {name}",
+        Target._6502: f"jsr {name}"
+    }[TARGET]
+
+def subtract_immediate(value: int) -> list[str]:
+    match TARGET:
+        case Target.AVR:
+            return [f"subi {TEMP_REG}, {value}"]
+        case Target._6502:
+            return [
+                "sec",
+                f"sbc #{value}"
+            ]
+        case _: assert False
+
+def subtract_immediate_with_carry(value: int) -> str:
+    return {
+        Target.AVR: f"sbci {TEMP_REG}, {value}",
+        Target._6502: f"sbc #{value}"
+    }[TARGET]
+
+
+def branch_to_jump_6502(branch_mnemonic: str, final_destination_label: str) -> list[str]:
+
+    # just a hack cause you can only branch 128 bytes away
+    # and i'm being super inefficient with generating machine code
+
+    assert TARGET is Target._6502
+
+    jump_skip_point = get_jump_point("jump_skip")
+    branch_selected_point = get_jump_point("branch_selected")
+
+    return [
+        f"{branch_mnemonic} {branch_selected_point}",
+        f"jmp {jump_skip_point}",
+        f"{branch_selected_point}:",
+        f"jmp {final_destination_label}",
+        f"{jump_skip_point}:"
+
+    ]
+
+
+def branch_not_equal(label: str) -> list[str]:
+    match TARGET:
+        case Target.AVR:
+            return [f"brne {label}"]
+        case Target._6502:
+            return branch_to_jump_6502("bne", label)
+        
+    
+def branch_equal(label: str) -> list[str]:
+    
+    match TARGET:
+        case Target.AVR:
+            return [f"breq {label}"]
+        case Target._6502:
+            return branch_to_jump_6502("beq", label)
+    
+
+
+
+def return_from_subroutine() -> str:
+    return {
+        Target.AVR: f"ret",
+        Target._6502: f"rts"
+    }[TARGET]
+
+
+
+
+
+def push_stack_pointer() -> list[str]:
+
+    """
+    used for strings and arrays
+    pushes the address of the last element on the stack
+    since the sp points to the next slot, you add one
+    """
+
+    match TARGET:
+        case Target.AVR:
+            return [
+                "; push the address of the string pointer",
+                f"lds {TEMP_REG}, {SP_ADDRESS_LOW}",
+                f"lds {RIGHT_TEMP_REG}, {SP_ADDRESS_HIGH}",
+                f"addi {TEMP_REG}, {1}",  # subtraction sets/clears carry flag for higher byte
+                f"adci {RIGHT_TEMP_REG}, {0}",  # tempreg - carryflag - 0
+                "clc",
+                f"push {TEMP_REG}",
+                f"push {RIGHT_TEMP_REG}",
+            ]
+        case Target._6502:
+            # for 6502 the stack pointer is only one byte
+            # (the high byte is always 1)
+            return [
+                "tsx",
+                "txa",
+                "clc",
+                f"adc #{1}",        
+                "pha",
+                f"lda #1",
+                "pha"
+            ]
+        case _: assert False
+
+def get_multiply_assembly(expression:Operation, variables: list[list[Variable_Allocated]], structs: list[list[Struct]]) -> list[Any]:
 
     assembly = []
     operand_type = Type(Base_Types.INT8, 0)
@@ -1670,26 +2113,53 @@ def get_multiply_assembly(expression:Operation, variables: list[list[Variable_Al
     assembly += assembly2
     assembly += get_size_match_assembly(operand_type, type2, structs)
     
-    size1 = get_size(type1, structs)
-    size2 = get_size(type2, structs)
+    match TARGET:
+        case Target.AVR:
+        
 
 
+            output_register_low = "r0"
+            output_register_high = "r1"
+            
+            assembly += [
+                f"pop {RIGHT_TEMP_REG}",
+                f"pop {TEMP_REG}",
+                f"mul {TEMP_REG}, {RIGHT_TEMP_REG}",
+                f"mov {TEMP_REG}, {output_register_low}",
+                f"push {TEMP_REG}",
+                f"mov {TEMP_REG}, {output_register_high}",
+                f"push {TEMP_REG}"
+            ]
+            
 
-    output_register_low = "r0"
-    output_register_high = "r1"
-    
-    assembly += [
-        f"pop {RIGHT_TEMP_REG}",
-        f"pop {TEMP_REG}",
-        f"mul {TEMP_REG}, {RIGHT_TEMP_REG}",
-        f"mov {TEMP_REG}, {output_register_low}",
-        f"push {TEMP_REG}",
-        f"mov {TEMP_REG}, {output_register_high}",
-        f"push {TEMP_REG}"
-    ]
-    
+        case Target._6502:
 
+            loop_point = get_jump_point("multiply_loop")
+            assembly += [
+                "pla",
+                "tax",
+                "pla",
+                f"sta {RIGHT_SIDE_6502}",
+                "lda #0",
+                "clc",
+                f"{loop_point}:",
+                f"adc {RIGHT_SIDE_6502}",
+                "dex",
+                f"bne {loop_point}",
+                "pha",
+                "lda #0; FUTURE right now im assuming the product is only 1 byte",
+                "pha"
+            ]
+
+            
+        case _: assert False
+        
     return [assembly, Type(Base_Types.INT16, 0)]
+
+
+
+
+
 
 
 
@@ -1699,7 +2169,7 @@ def get_not_assembly(expression:UnitaryOperation, variables: list[list[Variable_
     very similar to get boolean asm but it's ok
     """
 
-    assembly = []
+    assembly: list[str] = []
 
 
 
@@ -1713,18 +2183,18 @@ def get_not_assembly(expression:UnitaryOperation, variables: list[list[Variable_
 
     for _ in range(size):
         assembly += [
-            f"pop {TEMP_REG}",
-            f"cpi {TEMP_REG}, 0",
-            f"brne {is_true_point}"
+            pop(),
+            compare_immediate(0),
         ]
+        assembly += branch_not_equal(is_true_point)
 
     assembly += [
-        f"ldi {TEMP_REG}, 1",
+        load_immediate(1),
         f"jmp {exit_point}",
         f"{is_true_point}:",
-        f"ldi {TEMP_REG}, 0",
+        load_immediate(0),
         f"{exit_point}:",
-        f"push {TEMP_REG}"
+        push()
     ]
 
 
@@ -1735,7 +2205,7 @@ def get_not_assembly(expression:UnitaryOperation, variables: list[list[Variable_
 
 def get_and_or_assembly(expression:Operation, variables: list[list[Variable_Allocated]], structs: list[list[Struct]]) -> list[Any]:
 
-    assembly = []
+    assembly: list[str] = []
 
     [assembly1, type1] = get_boolean_assembly(expression.operand1, variables, structs)
     assembly += assembly1
@@ -1748,29 +2218,29 @@ def get_and_or_assembly(expression:Operation, variables: list[list[Variable_Allo
     if type(expression.operation) is AND:
         either_point = get_jump_point("and_clear")
         skip_point = get_jump_point("and_skip_clear")
-        value_either = "0"
-        value_both = "1"
+        value_either = 0
+        value_both = 1
     elif type(expression.operation) is OR:
         either_point = get_jump_point("or_set")
         skip_point = get_jump_point("or_skip_set")
-        value_either = "1"
-        value_both = "0"
+        value_either = 1
+        value_both = 0
     else:
         assert False
 
     assembly += [
-        f"pop {TEMP_REG}",
-        f"cpi {TEMP_REG}, {value_either}",
-        f"breq {either_point}",
-        f"pop {TEMP_REG}",
-        f"cpi {TEMP_REG}, {value_either}",
-        f"breq {either_point}",
-        f"ldi {TEMP_REG}, {value_both}",
+        pop(),
+        compare_immediate(value_either),
+        *branch_equal(either_point),
+        pop(),
+        compare_immediate(value_either),
+        *branch_equal(either_point),
+        load_immediate(value_both),
         f"jmp {skip_point}",
         f"{either_point}:",
-        f"ldi {TEMP_REG}, {value_either}",
+        load_immediate(value_either),
         f"{skip_point}:",
-        f"push {TEMP_REG}"
+        push()
     ]
 
     return [assembly, Type(Base_Types.INT8, 0)]
@@ -1803,41 +2273,51 @@ def get_add_subtract_assembly(expression:Operation, variables: list[list[Variabl
 
     
     if type(expression.operation) is PLUS:
-        arithmetic_instruction = "adc"
+        arithmetic_mnemonic = "adc"
     elif type(expression.operation) is MINUS:
-        arithmetic_instruction = "sbc"
+        arithmetic_mnemonic = "sbc"
+    elif type(expression.operation) is BIT_AND:
+        arithmetic_mnemonic = "and"
+    elif type(expression.operation) is BIT_OR:
+        arithmetic_mnemonic = "ora"
     else:
         assert False
 
     output_size = max(size1, size2)
-    assembly += [
-        "clc",
-        f"lds {X_LOW}, {SP_ADDRESS_LOW}",
-        f"lds {X_HIGH}, {SP_ADDRESS_HIGH}"
-    ]
+
+    if type(expression.operation) is MINUS and TARGET is Target._6502:
+        assembly.append("sec")
+    else:
+        assembly.append("clc")
+    
+    assembly += prepare_indirect_from_stack_pointer()
     for byte_idx in range(output_size):
         offset1 = size2 + size1 - byte_idx
         offset2 = size2 - byte_idx
         if byte_idx >= size1:
-            load1_assembly = [f"ldi {TEMP_REG}, 0"]
+            load1_assembly = [load_immediate(0)]
         else:
-            load1_assembly = [f"ldd {TEMP_REG}, X+{offset1}"]
+            load1_assembly = load_indirect_with_offset(offset1)
         if byte_idx >= size2:
-            load2_assembly = [f"ldi {RIGHT_TEMP_REG}, 0"]
+            load2_assembly = load_immediate_right_side(0)
         else:
-            load2_assembly = [f"ldd {RIGHT_TEMP_REG}, X+{offset2}"]
+            load2_assembly = load_indirect_right_side_with_offset(offset2) 
         assembly += load1_assembly
         assembly += load2_assembly
-        assembly += [
-            f"{arithmetic_instruction} {TEMP_REG}, {RIGHT_TEMP_REG}",
-            f"std X+{offset1}, {TEMP_REG}"
-        ]
+
+        if TARGET == Target.AVR:
+            arithmetic_instruction = f"{arithmetic_mnemonic} {TEMP_REG}, {RIGHT_TEMP_REG}"
+        else:
+            arithmetic_instruction = f"{arithmetic_mnemonic} {RIGHT_SIDE_6502}"
+        assembly.append(arithmetic_instruction)
+        
+        assembly += store_indirect_with_offset(offset1)
 
 
     output_type = get_int_type(output_size) 
 
     total_input_size = size1 + size2
-    assembly += [f"pop {TEMP_REG}"] * (total_input_size - output_size)
+    assembly += [pop()] * (total_input_size - output_size)
     return [assembly, output_type]
     
 
@@ -1846,19 +2326,16 @@ def get_add_subtract_assembly(expression:Operation, variables: list[list[Variabl
 
 def get_equality_assembly(expression:Operation, variables: list[list[Variable_Allocated]], structs: list[list[Struct]]) -> list[Any]:
 
-    assembly = []
+    assembly: list[str] = []
 
     [assembly1, type1] = get_expression_assembly(expression.operand1, variables, structs)
     [assembly2, type2] = get_expression_assembly(expression.operand2, variables, structs)
     assembly += assembly1
     assembly += assembly2
 
-    assembly += [
-        "clc",
-        f"lds {X_LOW}, {SP_ADDRESS_LOW}",
-        f"lds {X_HIGH}, {SP_ADDRESS_HIGH}"
-    ]
-
+    assembly.append("clc")
+    assembly += prepare_indirect_from_stack_pointer()
+    
     size1 = get_size(type1, structs)
     size2 = get_size(type2, structs)
 
@@ -1872,40 +2349,41 @@ def get_equality_assembly(expression:Operation, variables: list[list[Variable_Al
         offset1 = size2 + size1 - byte_idx
         offset2 = size2 - byte_idx
         if byte_idx >= size1:
-            load1_assembly = [f"ldi {TEMP_REG}, 0"]
+            load1_assembly = [load_immediate(0)]
         else:
-            load1_assembly = [f"ldd {TEMP_REG}, X+{offset1}"]
+            load1_assembly = load_indirect_with_offset(offset1)
         if byte_idx >= size2:
-            load2_assembly = [f"ldi {RIGHT_TEMP_REG}, 0"]
+            load2_assembly = load_immediate_right_side(0)
         else:
-            load2_assembly = [f"ldd {RIGHT_TEMP_REG}, X+{offset2}"]
+            load2_assembly = load_indirect_right_side_with_offset(offset2)
         assembly += load1_assembly
         assembly += load2_assembly
         assembly += [
-            f"cp {TEMP_REG}, {RIGHT_TEMP_REG}",
-            f"brne {not_equal_point}"
+            compare_two_sides(),
         ]
+        assembly += branch_not_equal(not_equal_point)
 
 
     total_offset = size1 + size2
     new_size = 1
 
     if type(expression.operation) is EQUAL_COMPARE:
-        is_equal_output_value = "1"
-        not_equal_output_value = "0"
+        is_equal_output_value = 1
+        not_equal_output_value = 0
     elif type(expression.operation) is NOT_EQUAL:
-        is_equal_output_value = "0"
-        not_equal_output_value = "1"
+        is_equal_output_value = 0
+        not_equal_output_value = 1
 
     assembly += [
-        f"ldi {TEMP_REG}, {is_equal_output_value}",
+        load_immediate(is_equal_output_value),
         f"jmp {exit_point}",
         f"{not_equal_point}:",
-        f"ldi {TEMP_REG}, {not_equal_output_value}",
+        load_immediate(not_equal_output_value),
         f"{exit_point}:",
-        f"std X+{total_offset}, {TEMP_REG}"
     ]
-    assembly += [f"pop {TEMP_REG}"] * (total_offset - new_size)
+    assembly += store_indirect_with_offset(total_offset)
+
+    assembly += [pop()] * (total_offset - new_size)
 
 
 
@@ -1923,21 +2401,33 @@ def get_inequality_assembly(expression:Operation, variables: list[list[Variable_
 
     then check the carry flag
 
+    for avr
+
     a>b -->
     b-a<0 -->
     carry flag set -->
     true
 
+    
+    for 6502 the carry flag is flipped
     """
 
-    assembly = []
+    assembly: list[str] = []
 
+    skip_clear_point = get_jump_point("greater_true")
 
 
     if type(expression.operation) in [GREATER_THAN, LESS_THAN]:
-        carry_check_instruction = "brcs"
+        
+        carry_check_instruction = {
+            Target.AVR: [f"brcs {skip_clear_point}"],
+            Target._6502: branch_to_jump_6502("bcc", skip_clear_point)
+        }[TARGET]
     elif type(expression.operation) in [GREATER_EQUAL, LESS_EQUAL]:
-        carry_check_instruction = "brcc"
+        carry_check_instruction = {
+            Target.AVR: [f"brcc {skip_clear_point}"],
+            Target._6502: branch_to_jump_6502("bcs", skip_clear_point)
+        }[TARGET]
     else:
         assert False
 
@@ -1953,16 +2443,16 @@ def get_inequality_assembly(expression:Operation, variables: list[list[Variable_
     output_size = get_size(output_type, structs)
     
     assembly += subtract_assembly
-    assembly += [f"pop {TEMP_REG}"] * output_size
+    assembly += [pop()] * output_size
 
-    skip_clear_point = get_jump_point("greter_true")
 
     assembly += [
-        f"ldi {TEMP_REG}, 1",
-        f"{carry_check_instruction} {skip_clear_point}",
-        f"ldi {TEMP_REG}, 0",
+        load_immediate(1),
+        *carry_check_instruction,
+        # f"{carry_check_instruction} {skip_clear_point}",
+        load_immediate(0),
         f"{skip_clear_point}:",
-        f"push {TEMP_REG}",
+        push(),
     ]
 
     return [assembly, Type(Base_Types.INT8, 0)]
@@ -1988,30 +2478,17 @@ def get_string_assembly(string: STRING, variables: list[list[Variable_Allocated]
     string_assembly = [
         "",
         "; generating string assembly",
-        f"ldi {TEMP_REG}, 0",
-        f"push {TEMP_REG}"
+        load_immediate(0),
+        push()
     ]
     reversed_string_chars = string.value[::-1]
     for char in reversed_string_chars:
         string_assembly += [
-            f"ldi {TEMP_REG}, {ord(char)}",
-            f"push {TEMP_REG}"
+            load_immediate(ord(char)),
+            push()
         ]
-    char_size = 1
 
-    # pushes SP-2 to the TOS
-    # subtracting 2 cause it needs to point to the address of the first element
-    # that address is the SP after the two pushes here
-    string_assembly += [
-        "; push the address of the string pointer",
-        f"lds {TEMP_REG}, {SP_ADDRESS_LOW}",
-        f"lds {RIGHT_TEMP_REG}, {SP_ADDRESS_HIGH}",
-        f"addi {TEMP_REG}, {char_size}",  # subtraction sets/clears carry flag for higher byte
-        f"adci {RIGHT_TEMP_REG}, {0}",  # tempreg - carryflag - 0
-        "clc",
-        f"push {TEMP_REG}",
-        f"push {RIGHT_TEMP_REG}",
-    ]
+    string_assembly += push_stack_pointer()
         
     allocate_to_stack(string_size, None, Type(Base_Types.STRING_PLACEHOLDER, 0), variables)
 
@@ -2060,24 +2537,7 @@ def get_array_assembly(target: Variable_Typed, array_literal: Array_Literal, var
 
 
 
-
-    # pushes SP-2 to the TOS
-    # subtracting 2 cause it needs to point to the address of the first element
-    # that address is the SP after the two pushes here
-    array_assembly += [
-        "",
-        "; push the address of the array pointer",
-        f"lds {TEMP_REG}, {SP_ADDRESS_LOW}",
-        f"lds {RIGHT_TEMP_REG}, {SP_ADDRESS_HIGH}",
-        # FLIPPED now that things point to the top (low memory) i just add 1, not the item size
-        f"addi {TEMP_REG}, {1}",  # subtraction sets/clears carry flag for higher byte
-        f"adci {RIGHT_TEMP_REG}, 0",  # tempreg - carryflag - 0
-        "clc",
-        f"push {TEMP_REG}",
-        f"push {RIGHT_TEMP_REG}",
-    ]
-
-
+    array_assembly += push_stack_pointer()
 
     assert type(item_type) is Type
     array_type = Type(item_type.base_type, item_type.reference_level+1)
@@ -2085,6 +2545,16 @@ def get_array_assembly(target: Variable_Typed, array_literal: Array_Literal, var
     return [array_assembly, array_type]
 
 
+
+def get_base_pointer(is_global):
+
+    if is_global and TARGET is Target._6502:
+        return [0xff, 0x1]
+    elif is_global and TARGET is Target.AVR:
+        return [GLOBAL_P_ADDRESS_LOW, GLOBAL_P_ADDRESS_HIGH]
+    elif not is_global:
+        return [BP_ADDRESS_LOW, BP_ADDRESS_HIGH]
+    else: assert False
 
 def store_to_stack(offset_from_base_pointer: int, variable_size: int, is_global: bool) -> list[str]:
     
@@ -2100,23 +2570,28 @@ def store_to_stack(offset_from_base_pointer: int, variable_size: int, is_global:
         base_pointer_low = BP_ADDRESS_LOW
         base_pointer_high = BP_ADDRESS_HIGH
 
-    assembly = [
-        "",
-        "; store variable inside the stack (assign value)",
-        f"lds {X_LOW}, {base_pointer_low}",
-        f"lds {X_HIGH}, {base_pointer_high}"
-    ]
+    """
+    for the 6502 you can only do positive offset
+    so i firt subtract the offset from X
+    then add back the byte offset
+    """
+    
+
+    assembly = prepare_indirect_from_memory_with_offset(base_pointer_low, base_pointer_high, offset_from_base_pointer)
 
 
     #FLIPPED go from 0 to n
     # for byte_idx in range(variable_size-1,-1,-1):
     for byte_idx in range(variable_size):
         assembly += [
-            f"pop {TEMP_REG}",
-            #FLIPPED still subtract the offset from base pointer but add back the byteidx
-            # f"std X-{offset_from_base_pointer+byte_idx}, {TEMP_REG}"
-            f"std X-{offset_from_base_pointer-byte_idx}, {TEMP_REG}"
+            pop(), 
+            # of course this is fine for avr, but to keep it consistent not gonna do it this way
+            # equivalent to what im doing now
+                # first subtract the offset from X
+                # then do a positive offset store by the byte idx
+            # f"std X-{offset_from_base_pointer-byte_idx}, {TEMP_REG}"
         ]
+        assembly += store_indirect_with_offset(byte_idx)
     return assembly
 
 
@@ -2134,20 +2609,21 @@ def load_from_stack(offset_from_base_pointer: int, variable_size: int, is_global
         base_pointer_low = BP_ADDRESS_LOW
         base_pointer_high = BP_ADDRESS_HIGH
 
-    assembly = [
-        "",
-        "; load variable from inside the stack",
-        f"lds {X_LOW}, {base_pointer_low}",
-        f"lds {X_HIGH}, {base_pointer_high}"
-    ]
+    assembly = prepare_indirect_from_memory_with_offset(base_pointer_low, base_pointer_high, offset_from_base_pointer)
 
     #FLIPPED go from n to -1
     for byte_idx in range(variable_size-1,-1,-1):
+        assembly += load_indirect_with_offset(byte_idx)
         assembly += [
+            "",
+            "; push variable on stack:",
+
             #FLIPPED still subtract the offset from base pointer but add back the byteidx
             # f"ldd {TEMP_REG}, X-{offset_from_base_pointer+byte_idx}",
-            f"ldd {TEMP_REG}, X-{offset_from_base_pointer-byte_idx}",
-            f"push {TEMP_REG}"
+            
+            # f"ldd {TEMP_REG}, X+{byte_idx}",
+            push()
+            # f"push {TEMP_REG}"
         ]
     return assembly
 
@@ -2248,12 +2724,9 @@ def get_struct_field_assembly(leaf: Struct_Field, is_target: bool, variables: li
         inner_node_output_size = get_size(inner_node_output_type, structs)        
         final_output_size = get_size(output_type, structs)
         
-        assembly += [
-            "",
-            "; retrieve field from function call output",
-            f"lds {X_LOW}, {SP_ADDRESS_LOW}",
-            f"lds {X_HIGH}, {SP_ADDRESS_HIGH}",
-        ]
+        assembly.append("; retrieve field from function call output")
+        assembly += prepare_indirect_from_stack_pointer()
+
         #FLIPPED plus totalfieldoffset
         # load_offset = inner_node_output_size - total_field_offset
         load_offset = total_field_offset + final_output_size
@@ -2261,14 +2734,13 @@ def get_struct_field_assembly(leaf: Struct_Field, is_target: bool, variables: li
         # load from where it is originally on the stack
         # then store where it should be right above everything else
         for byte_idx in range(final_output_size):
-            assembly += [
-                f"ldd {TEMP_REG}, X+{load_offset - byte_idx}",
-                f"std X+{store_offset - byte_idx}, {TEMP_REG}"
-            ]
+            assembly += load_indirect_with_offset(load_offset - byte_idx)
+            assembly += store_indirect_with_offset(store_offset - byte_idx)
+            
         # pop back so the SP is now right above the field
         n_pops_to_drop = inner_node_output_size - final_output_size
         for _ in range(n_pops_to_drop):
-            assembly.append(f"pop {TEMP_REG}")
+            assembly.append(pop())
 
     return [assembly, output_type]
 
@@ -2333,7 +2805,7 @@ def get_function_call_assembly(function_call: Function_Call, variables: list[lis
     
 
     if function_call.function_name in my_own_intrinsic_function_names:
-
+        
         if function_call.function_name == "_halt":
             halt_assembly = ["jmp halt_point"]
             return [halt_assembly, Type(Base_Types.INT8, 0)]
@@ -2352,22 +2824,38 @@ def get_function_call_assembly(function_call: Function_Call, variables: list[lis
 
         if function_call.function_name == "_print_char":
             if expression_size == 1: instruction_name = "_print_char"
-            elif expression_size == 2: raise ArgumentMismatchException("_print_char only accepts 8bit arguments")
             else: raise ArgumentMismatchException("printchar can only be 1 byte")
         elif function_call.function_name == "_print_int":
             if expression_size == 1: instruction_name = "_print_int8"
             elif expression_size == 2: instruction_name = "_print_int16"
             else: raise ArgumentMismatchException("printint can only be 1 or 2 bytes")
         
-        print_assembly.append(instruction_name)
+
+        pop_argument_assembly = [pop()] * expression_size
+
+        match TARGET:
+            case Target.AVR:
+                # for the avr emulator, i'm retrieving from the top of stack
+                print_assembly.append(instruction_name)
+                print_assembly += pop_argument_assembly
+            case Target._6502:
+                # for 6502 i'm jumping to a subroutine that takes the char from the accumulator
+                print_assembly += pop_argument_assembly
+                if instruction_name == "_print_char":
+                    print_assembly.append(f"jsr _print_char")
 
 
-        print_assembly += [f"pop {TEMP_REG}"] * expression_size
+
+
+
+    
 
         # returning an int8 with value 0 is totally arbitrary
         print_assembly += [
-            f"ldi {TEMP_REG}, 0",
-            f"push {TEMP_REG}"
+            load_immediate(0),
+            push()
+            # f"ldi {TEMP_REG}, 0",
+            # f"push {TEMP_REG}"
         ]
         return [print_assembly, Type(Base_Types.INT8,0)]
     
@@ -2382,8 +2870,8 @@ def get_function_call_assembly(function_call: Function_Call, variables: list[lis
         expression_size = get_sizeof(sizeof_argument, variables, structs)
         
         sizeof_assembly = [
-            f"ldi {TEMP_REG}, {expression_size}",
-            f"push {TEMP_REG}"
+            load_immediate(expression_size),
+            push()
         ]
         
         return [sizeof_assembly, Type(Base_Types.INT8,0)]
@@ -2459,32 +2947,43 @@ def get_function_call_assembly(function_call: Function_Call, variables: list[lis
         assembly += argument_assembly
         assembly += get_size_match_assembly(parameter.type, argument_type, structs)
 
+
+
     # placeholders are needed so there's enough space for it to return
     if space_after_parameters_size > 0:
         assembly.append("")
         assembly.append("; fill in placeholders since output size is more than parameters")
         # doesn't matter what value you push, but im going with 0 so it's easier to debug the asm
-        assembly.append(f"ldi {TEMP_REG}, 0")
+        assembly.append(load_immediate(0))
+        # assembly.append(f"ldi {TEMP_REG}, 0")
     for _ in range(space_after_parameters_size):
-        assembly.append(f"push {TEMP_REG}")
+        assembly.append(push())
+        # assembly.append(f"push {TEMP_REG}")
 
 
+    
     store_base_pointer_assembly = [
+
         "",
         "; push BP, call, then store BP back",
-        f"lds {TEMP_REG}, {BP_ADDRESS_LOW}",
-        f"push {TEMP_REG}",
-        f"lds {TEMP_REG}, {BP_ADDRESS_HIGH}",
-        f"push {TEMP_REG}",
+        load_from_memory(BP_ADDRESS_LOW),
+        push(),
+        load_from_memory(BP_ADDRESS_HIGH),
+        push(),
+        # f"lds {TEMP_REG}, {BP_ADDRESS_LOW}",
+        # f"push {TEMP_REG}",
+        # f"lds {TEMP_REG}, {BP_ADDRESS_HIGH}",
+        # f"push {TEMP_REG}",
         
     ]
     assembly += store_base_pointer_assembly
-    assembly.append(f"call {function_call.function_name}")
+    assembly.append(call_subroutine(function_call.function_name))
     load_base_pointer_assembly = [
-        f"pop {TEMP_REG}",
-        f"sts {BP_ADDRESS_HIGH}, {TEMP_REG}",
-        f"pop {TEMP_REG}",
-        f"sts {BP_ADDRESS_LOW}, {TEMP_REG}",
+        pop(),
+        store_to_memory(BP_ADDRESS_HIGH),
+        pop(),
+        store_to_memory(BP_ADDRESS_LOW),
+
         
     ]
     assembly += load_base_pointer_assembly
@@ -2495,22 +2994,22 @@ def get_function_call_assembly(function_call: Function_Call, variables: list[lis
         assembly += [
             "",
             "; retrieve field from function call output",
-            f"lds {X_LOW}, {SP_ADDRESS_LOW}",
-            f"lds {X_HIGH}, {SP_ADDRESS_HIGH}",
+            
         ]
+        assembly += prepare_indirect_from_stack_pointer()
+
         load_offset = return_size
         store_offset = total_parameter_size
         # load from where it is originally on the stack
         # then store where it should be right above everything else
         for byte_idx in range(return_size):
-            assembly += [
-                f"ldd {TEMP_REG}, X+{load_offset - byte_idx}",
-                f"std X+{store_offset - byte_idx}, {TEMP_REG}"
-            ]
+            assembly += load_indirect_with_offset(load_offset - byte_idx)
+            assembly += store_indirect_with_offset(store_offset - byte_idx)
+            
         # pop back so the SP is now right above the return
         n_pops_to_drop = space_after_output_size
         for _ in range(n_pops_to_drop):
-            assembly.append(f"pop {TEMP_REG}")
+            assembly.append(pop())
 
     return [assembly, output_type]
 
@@ -2539,18 +3038,28 @@ def get_array_index_assembly(leaf: Array_Index, is_target: bool, struct_field_of
     element_size = get_size(output_type, structs)
 
 
-    assembly = []
+    is_zero_index = type(leaf.index) is NUMBER and leaf.index.value == 0
 
-    artificial_index_tree = \
-    Operation(
-        Type_Cast(leaf.array,Type(Base_Types.INT16,0)),
-        PLUS(),
+    type_cast_tree = Type_Cast(leaf.array,Type(Base_Types.INT16,0))
+
+    artificial_index_tree: Tree
+    
+    if is_zero_index:
+        artificial_index_tree = type_cast_tree
+    else:
+        artificial_index_tree = \
         Operation(
-            leaf.index,
-            ASTERISK(),
-            NUMBER(element_size)
+            type_cast_tree,
+            PLUS(),
+            Operation(
+                leaf.index,
+                ASTERISK(),
+                NUMBER(element_size)
+            )
         )
-    )
+
+
+    assembly = []
 
     [offset_assembly, offset_type] = get_expression_assembly(artificial_index_tree, variables, structs)
     assembly += offset_assembly
@@ -2558,10 +3067,23 @@ def get_array_index_assembly(leaf: Array_Index, is_target: bool, struct_field_of
     assert type(offset_type) is Type
     assert offset_type.base_type is Base_Types.INT16 and offset_type.reference_level == 0, "subtraction with int16 should produce int16"
 
-    assembly += [
-        f"pop {X_HIGH}",        # high pointer
-        f"pop {X_LOW}",         # low pointer
-    ]
+
+    match TARGET:
+        case Target.AVR:
+            prepare_indirect_assembly = [
+                f"pop {X_HIGH}",        # high pointer
+                f"pop {X_LOW}",         # low pointer
+            ]
+        case Target._6502:
+            prepare_indirect_assembly = [
+                "pla",
+                f"sta {HIGH_INDIRECT_6502}",
+                "pla",
+                f"sta {LOW_INDIRECT_6502}",
+            ]
+
+    assembly += prepare_indirect_assembly
+
 
     # none means access everything, otherwise just access the field
     if struct_field_size is None:
@@ -2578,21 +3100,25 @@ def get_array_index_assembly(leaf: Array_Index, is_target: bool, struct_field_of
         # for byte_idx in range(n_bytes_to_access-1,-1,-1):
         for byte_idx in range(n_bytes_to_access):
             assembly += [
-                f"pop {TEMP_REG}",
+                pop(),
+                # f"pop {TEMP_REG}",
                 #FLIPPED add from X, keep adding the structoffset+byteidx
                 # f"std X-{struct_field_offset+byte_idx}, {TEMP_REG}"
-                f"std X+{struct_field_offset+byte_idx}, {TEMP_REG}"
+                # f"std X+{struct_field_offset+byte_idx}, {TEMP_REG}"
             ]
+            assembly += store_indirect_with_offset(struct_field_offset + byte_idx)
     else:
         # for an expression, push the result to the TOS
         # FLIPPED for loading go from n-1 to -1
         # for byte_idx in range(n_bytes_to_access):
         for byte_idx in range(n_bytes_to_access-1,-1,-1):
+            assembly += load_indirect_with_offset(struct_field_offset+byte_idx)
             assembly += [
                 #FLIPPED add from X, keep adding the structoffset+byteidx
                 # f"ldd {TEMP_REG}, X-{struct_field_offset+byte_idx}",
-                f"ldd {TEMP_REG}, X+{struct_field_offset+byte_idx}",
-                f"push {TEMP_REG}"
+                # f"ldd {TEMP_REG}, X+{struct_field_offset+byte_idx}",
+                push()
+                # f"push {TEMP_REG}"
             ]
 
     return [assembly, output_type]
@@ -2640,9 +3166,9 @@ def get_expression_assembly(expression: Tree, variables: list[list[Variable_Allo
         assembly += [
             f"",
             f"; store null",
-            f"ldi {TEMP_REG}, 0",
-            f"push {TEMP_REG}",
-            f"push {TEMP_REG}"
+            load_immediate(0),
+            push(),
+            push(),
         ]
         output_type = Type(Base_Types.INT8, 1)
     elif type(expression) is NUMBER:
@@ -2658,16 +3184,16 @@ def get_expression_assembly(expression: Tree, variables: list[list[Variable_Allo
 
         if value_high == 0:
             assembly += [
-                f"ldi {TEMP_REG}, {value_low}",
-                f"push {TEMP_REG}"
+                load_immediate(value_low),
+                push(),
             ]
             output_type = Type(Base_Types.INT8, 0)
         else:
             assembly += [
-                f"ldi {TEMP_REG}, {value_low}",
-                f"push {TEMP_REG}",
-                f"ldi {TEMP_REG}, {value_high}",
-                f"push {TEMP_REG}"
+                load_immediate(value_low),
+                push(),
+                load_immediate(value_high),
+                push(),
             ]
             output_type = Type(Base_Types.INT16, 0)
 
@@ -2677,9 +3203,9 @@ def get_expression_assembly(expression: Tree, variables: list[list[Variable_Allo
         assembly += [
             "",
             f"; store value {value}",
-            f"ldi {TEMP_REG}, {value}"
+            load_immediate(value),
         ]    
-        assembly.append(f"push {TEMP_REG}")
+        assembly.append(push())
     elif type(expression) is STRING:
         assembly += get_string_assembly(expression, variables, structs)
         output_type = Type(Base_Types.INT8, 1)
@@ -2690,13 +3216,17 @@ def get_expression_assembly(expression: Tree, variables: list[list[Variable_Allo
         assembly += [
             "",
             f"; get the reference of {expression.variable_name}",
-            f"lds {TEMP_REG}, {BP_ADDRESS_LOW}",
-            f"subi {TEMP_REG}, {offset}",
-            f"push {TEMP_REG}",
-            f"lds {TEMP_REG}, {BP_ADDRESS_HIGH}",
-            f"sbci {TEMP_REG}, 0",
-            f"push {TEMP_REG}"
+            load_from_memory(BP_ADDRESS_LOW),
+            # f"lds {TEMP_REG}, {BP_ADDRESS_LOW}",
         ]
+        assembly += subtract_immediate(offset)
+        assembly += [
+            push(),
+            load_from_memory(BP_ADDRESS_HIGH),
+            subtract_immediate_with_carry(0),
+            push()
+        ]
+        
         variable_type = referenced_variable.type
         assert type(variable_type) is Type
         output_type = Type(variable_type.base_type, variable_type.reference_level+1)
@@ -2712,7 +3242,7 @@ def get_expression_assembly(expression: Tree, variables: list[list[Variable_Allo
         [not_assembly, output_type] = get_not_assembly(expression, variables, structs)
         assembly += not_assembly
 
-    elif type(expression) is Operation and type(expression.operation) in [PLUS,MINUS]:
+    elif type(expression) is Operation and type(expression.operation) in [PLUS,MINUS, BIT_AND, BIT_OR]:
         [add_assembly, output_type] = get_add_subtract_assembly(expression, variables, structs)
         assembly += add_assembly
     elif type(expression) is Operation and type(expression.operation) in [GREATER_THAN, LESS_THAN, GREATER_EQUAL, LESS_EQUAL]:
@@ -2770,9 +3300,10 @@ def get_declaration_assembly(declaration: Declaration, variables: list[list[Vari
         expression_assembly = [
             "",
             f"; defaulting uninitialized {target.name} to 0",
-            f"ldi {TEMP_REG}, 0",
+            load_immediate(0),
+            
         ]
-        expression_assembly += [f"push {TEMP_REG}"] * output_size
+        expression_assembly += [push()] * output_size
     elif type(expression) is Array_Literal:
         [expression_assembly, expression_type] = get_array_assembly(target, expression, variables, structs)
     else:
@@ -2872,6 +3403,9 @@ return
 
 """
 
+
+
+
 def get_scope_exit_assembly():
 
     total_offset_from_bp = 0 
@@ -2881,17 +3415,9 @@ def get_scope_exit_assembly():
     if total_offset_from_bp > 255:
         raise NotImplementedYetException("just need to use the high byte too")
 
-    return [
-        "",
-        "; reset the scope",
-        f"lds {TEMP_REG}, {BP_ADDRESS_LOW}",
-        f"subi {TEMP_REG}, {total_offset_from_bp}",
-        f"sts {SP_ADDRESS_LOW}, {TEMP_REG}",
 
-        f"lds {TEMP_REG}, {BP_ADDRESS_HIGH}",
-        f"sbci {TEMP_REG}, 0",
-        f"sts {SP_ADDRESS_HIGH}, {TEMP_REG}"
-    ]
+    return set_stack_pointer_from_memory_with_offset(BP_ADDRESS_LOW, BP_ADDRESS_HIGH, total_offset_from_bp)
+    
 
 
 
@@ -2923,28 +3449,28 @@ def get_boolean_assembly(expression: Tree, variables: list[list[Variable_Allocat
 
     for _ in range(expression_size):
         assembly += [
-            f"pop {TEMP_REG}",
-            f"cpi {TEMP_REG}, 0",
-            f"brne {is_true_point}"
+            pop(),
+            compare_immediate(0),
         ]
+        assembly += branch_not_equal(is_true_point)
 
     assembly += [
-        f"ldi {TEMP_REG}, 0",
+        load_immediate(0),
         f"jmp {exit_point}",
         f"{is_true_point}:",
-        f"ldi {TEMP_REG}, 1",
+        load_immediate(1),
         f"{exit_point}:",
-        f"push {TEMP_REG}"
+        push(),
     ]
 
     return [assembly, output_type]
 
 
 def get_if_statement_assembly(if_container: If_Container, variables: list[list[Variable_Allocated]], structs: list[list[Struct]]) -> list[str]:
-    # TODO get boolean asm for if, for, and while
+    
     assert type(if_container) is If_Container
 
-    assembly = []
+    assembly: list[str] = []
 
     label_end = get_jump_point("if_end")
 
@@ -2957,9 +3483,13 @@ def get_if_statement_assembly(if_container: If_Container, variables: list[list[V
         label_skip = get_jump_point("if_skip")
         [condition_assembly, _] = get_boolean_assembly(block.condition, variables, structs)
         assembly += condition_assembly
-        assembly.append(f"pop {TEMP_REG}")
-        assembly.append(f"cpi {TEMP_REG}, 0")
-        assembly.append(f"breq {label_skip}")
+        assembly += [
+            pop(),
+            compare_immediate(0),
+
+        ]
+        
+        assembly += branch_equal(label_skip)
         assembly += get_block_assembly(block.block, variables, structs)
         assembly.append(f"jmp {label_end}")
         assembly.append(f"{label_skip}:")
@@ -2997,9 +3527,9 @@ def get_while_loop_assembly(while_block: While_Block, variables: list[list[Varia
     assembly.append(f"{loop_jump_point}:")
     [condition_assembly, _] = get_boolean_assembly(while_block.condition, variables, structs)
     assembly += condition_assembly
-    assembly.append(f"pop {TEMP_REG}")
-    assembly.append(f"cpi {TEMP_REG}, 0")
-    assembly.append(f"breq {exit_jump_point}")
+    assembly.append(pop())
+    assembly.append(compare_immediate(0))
+    assembly += branch_equal(exit_jump_point)
     block_assembly = get_block_assembly(while_block.block, variables, structs)
     assembly += block_assembly
     assembly.append(f"{continue_jump_point}:")
@@ -3035,9 +3565,9 @@ def get_for_loop_assembly(for_block: For_Block, variables: list[list[Variable_Al
     assembly.append(f"{loop_jump_point}:")
     [condition_assembly, _] = get_boolean_assembly(for_block.condition, variables, structs)
     assembly += condition_assembly
-    assembly.append(f"pop {TEMP_REG}")
-    assembly.append(f"cpi {TEMP_REG}, 0")
-    assembly.append(f"breq {exit_jump_point}")
+    assembly.append(pop())
+    assembly.append(compare_immediate(0))
+    assembly += branch_equal(exit_jump_point)
     assembly += get_block_assembly(for_block.block, variables, structs)
     assembly.append(f"{continue_jump_point}:")
 
@@ -3065,7 +3595,6 @@ def get_function_assembly(function_block: Function_Block, variables: list[list[V
         default return (returns stored at the top of the parameter/return spot below SP and BP)
     the caller is responsible for storing the parameters, and shuffling the return to the bottom of the spot if needed
     """
-
     if function_block.name in my_own_intrinsic_function_names:
         # this is so that i can have _print_int or _print_char contain calls to printf
         # that way gcc can compile it and everything runs the same
@@ -3090,15 +3619,14 @@ def get_function_assembly(function_block: Function_Block, variables: list[list[V
     assembly.append(f"jmp {skip_function_point}")
     assembly.append(f"{function_block.name}:")
 
+
     # the new base is right above the SP address pushed by the call
     assembly += [
         "",
-        "; store the stack pointer into the base pointer:",
-        f"lds {TEMP_REG}, {SP_ADDRESS_LOW}",
-        f"sts {BP_ADDRESS_LOW}, {TEMP_REG}",
-        f"lds {TEMP_REG}, {SP_ADDRESS_HIGH}",
-        f"sts {BP_ADDRESS_HIGH}, {TEMP_REG}",     
+        "; store the stack pointer into the base pointer:"
     ]
+    assembly += set_memory_from_stack_pointer(BP_ADDRESS_LOW, BP_ADDRESS_HIGH)
+        
 
     # retrieve the parameters by going below the SP and BP, and push them to the stack
     total_parameter_size = sum([get_size(parameter.type, structs) for parameter in function_block.parameters])
@@ -3109,18 +3637,18 @@ def get_function_assembly(function_block: Function_Block, variables: list[list[V
         assembly += [
             "",
             "; prepare X to the base pointer for pushing parameters to the stack",
-            f"lds {X_LOW}, {BP_ADDRESS_LOW}",
-            f"lds {X_HIGH}, {BP_ADDRESS_HIGH}",
+            
         ]
+        assembly += prepare_indirect_from_memory(BP_ADDRESS_LOW, BP_ADDRESS_HIGH)
     stack_pointer_offset = 2
     base_pointer_offset = 2
 
 
     for byte_idx in range(total_parameter_size):
         offset = stack_pointer_offset + base_pointer_offset + total_size - byte_idx
+        assembly += load_indirect_with_offset(offset)
         assembly += [
-            f"ldd {TEMP_REG}, X+{offset}",
-            f"push {TEMP_REG}"
+            push()
         ]
 
     # just like with declarations, allocate the parameters (no asm generation, just append to current scope variables)
@@ -3135,10 +3663,12 @@ def get_function_assembly(function_block: Function_Block, variables: list[list[V
     assembly += [
         "",
         "; default return value of 0",
-        f"ldi {TEMP_REG}, 0",
+        load_immediate(0)
     ]
     for _ in range(output_size):
-        assembly.append(f"push {TEMP_REG}")
+        assembly.append(push())
+
+
     assembly += get_return_assembly(output_size)
     
     assembly.append(f"{skip_function_point}:")
@@ -3167,23 +3697,15 @@ def get_return_assembly(output_size: int) -> list[str]:
         # four back would take it to the start of the stack pointer
         # need to add one more to get before there
         offset = stack_pointer_offset + base_pointer_offset + byte_idx + 1
-        return_assembly += [
-            f"pop {TEMP_REG}",
-            f"lds {X_LOW}, {BP_ADDRESS_LOW}",
-            f"lds {X_HIGH}, {BP_ADDRESS_HIGH}",
-            f"std X+{offset}, {TEMP_REG}",
-        ]
+        # return_assembly += [
+        #     pop()
+        # ]
+        return_assembly += prepare_indirect_from_memory(BP_ADDRESS_LOW, BP_ADDRESS_HIGH)
+        return_assembly.append(pop())
+        return_assembly += store_indirect_with_offset(offset)
         
-    return_assembly += [
-        "",
-        "; reset the stack pointer to the base pointer:",
-        f"lds {TEMP_REG}, {BP_ADDRESS_LOW}",
-        f"sts {SP_ADDRESS_LOW}, {TEMP_REG}",
-        f"lds {TEMP_REG}, {BP_ADDRESS_HIGH}",
-        f"sts {SP_ADDRESS_HIGH}, {TEMP_REG}",
-        "ret"    
-    ]
-
+    return_assembly += set_stack_pointer_from_memory(BP_ADDRESS_LOW, BP_ADDRESS_HIGH)
+    return_assembly.append(return_from_subroutine())
     return return_assembly
 
 
@@ -3224,15 +3746,34 @@ def get_block_assembly(lines: list[list[Block]], variables: list[list[Variable_A
 
     in_global_scope = len(variables) == 0
     if in_global_scope:
-        assembly += [
-            ".global main",
-            "",
-            "; set the global pointer to the initial stack pointer",
-            f"lds {TEMP_REG}, {SP_ADDRESS_LOW}",
-            f"sts {GLOBAL_P_ADDRESS_LOW}, {TEMP_REG}",
-            f"lds {TEMP_REG}, {SP_ADDRESS_HIGH}",
-            f"sts {GLOBAL_P_ADDRESS_HIGH}, {TEMP_REG}"
-        ]
+        match TARGET:
+            case Target.AVR:
+                assembly += [
+                    ".global main",
+                    "",
+                    "; set the global pointer to the initial stack pointer",
+                ]
+            case Target._6502:
+                assembly += [
+                    "PCR = $600C",
+                    "IFR = $600D",
+                    "IER = $600E",
+                    ".org $8000",
+                    "reset:",
+                    "cld",
+                    "cli", 
+                    "lda #%10011011 ; allow via to handle interrupts",
+                    "sta IER",
+                    "ldx #$ff",
+                    "txs",
+                    "; falling edge interrupt",
+                    "lda #$00",
+                    "sta PCR"
+                ]
+                
+                    
+
+        assembly += set_memory_from_stack_pointer(GLOBAL_P_ADDRESS_LOW, GLOBAL_P_ADDRESS_HIGH)
 
     for line in lines:
         if type(line) is Function_Block and line.name == "main":
@@ -3281,30 +3822,100 @@ def get_block_assembly(lines: list[list[Block]], variables: list[list[Variable_A
         else:
             [expression_assembly, output_type] = get_expression_assembly(line, variables, structs)
             assembly += expression_assembly
-            assembly += [f"pop {TEMP_REG}"] * get_size(output_type, structs)
+            assembly.append("; pop unused expression ouput:")
+            assembly += [pop()] * get_size(output_type, structs)
         
-        
+    
     if in_global_scope and not has_main:
         raise ParseException("main isn't one of the functions")
     if in_global_scope:
         base_pointer_offset = 2
-        assembly += [
-            "",
-            "; hack just to get the output top byte to the temp reg",
-            "call main",
-            f"lds {X_LOW}, {SP_ADDRESS_LOW}",
-            f"lds {X_HIGH}, {SP_ADDRESS_HIGH}",
-            f"ldd {TEMP_REG}, X+{base_pointer_offset+1}",
-            f"halt_point:"
-        ]
+        main_function_call = Function_Call("main", [])
+        
+        # assembly += [
+        #     "",
+        #     "; hack just to get the output top byte to the temp reg",
+        #     call_subroutine("main"),
+        # ]
+        assembly += get_function_call_assembly(main_function_call, variables, structs)[0]
+
+        assembly += prepare_indirect_from_stack_pointer()
+        # assembly += load_indirect_with_offset(base_pointer_offset+1)
+        assembly += load_indirect_with_offset(1)
+        assembly += [f"halt_point:"]
+        if TARGET is Target._6502:
+            assembly += [
+                "sta $4000; for the emulator to know to halt",
+                "jmp halt_point; so the actual computer will stay in a loop",
+            ]
+            
+
+            assembly.append("irq_jump_point:")
+            assembly += """
+  pha
+  txa
+  pha
+  tya
+  pha
+
+  lda IFR
+  ; selecting the correct option based on thing that interrupted would happen here
+    ;lda #%00011011
+  ;sta IER
+
+""".split("\n")
+            
+            irq_function_call = Function_Call("irq", [])
+            assembly += get_function_call_assembly(irq_function_call, variables, structs)[0]
+            # assembly.append("cli")
+            assembly += """
+  ; the pull is cause normally the output would be consumed
+  pla
+
+
+  
+  ;lda #%10011011
+  ;sta IER
+  bit $6000
+  bit $6001
+  pla
+  tay
+  pla
+  tax
+  pla
+  rti
+""".split("\n")
+            
+                
+
+            assembly += [
+
+                ".org $fffa",
+                ".word irq_jump_point",
+                ".org $fffc",
+                ".word reset",
+                ".org $fffe",
+                ".word irq_jump_point",
+                
+            ]
+            
     return assembly
 
 def get_assembly(tree: Tree) -> str:
 
-    assembly_lines= get_block_assembly(tree, [], [[]])
+    assembly_lines: list[str] = []
+
+    assembly_lines += get_block_assembly(tree, [], [[]])
+
+    if TARGET == Target._6502:
+        for idx, line in enumerate(assembly_lines):
+            if ":" in line:
+                assert line.endswith(":")
+            elif "=" in line: pass
+            else:
+                assembly_lines[idx] = f"{' '*4}{line}"
     assembly = "\n".join(assembly_lines)
     return assembly
-
 
 def compile(file_name: str) -> str:
 
@@ -3326,11 +3937,17 @@ def compile(file_name: str) -> str:
         print("\n")
         print(assembly)
 
-    # with open("main.S","w") as f:
-    #     f.write(assembly)
+
     
     return assembly
 
+
+
 if __name__ == "__main__":
     # file_name = sys.argv[1]
-    compile("test.c")
+    
+    assembly = compile("mini_test.c")
+
+
+    with open("main.S","w") as f:
+        f.write(assembly)

@@ -20,3 +20,7 @@ char main(){
 
     return a * b;
 }
+
+char irq(){
+    
+}

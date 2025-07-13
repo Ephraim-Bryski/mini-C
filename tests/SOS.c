@@ -21,3 +21,7 @@ char main(){
     my_aa.e = 30;
     return my_aa.inside.b;
 }
+
+char irq(){
+    
+}

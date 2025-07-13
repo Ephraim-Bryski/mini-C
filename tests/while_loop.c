@@ -7,3 +7,7 @@ char main(){
     }
     return a;
 }
+
+char irq(){
+    
+}

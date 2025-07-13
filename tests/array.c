@@ -9,3 +9,7 @@ char main(){
 
     return a[1];
 }
+
+char irq(){
+    
+}

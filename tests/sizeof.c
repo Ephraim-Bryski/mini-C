@@ -26,3 +26,7 @@ char main(){
 
     return 1;
 }
+
+char irq(){
+    
+}

@@ -13,3 +13,7 @@ char main (){
     A2.c = A2.b*3;
     return A2.c;
 }
+
+char irq(){
+    
+}

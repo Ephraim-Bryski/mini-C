@@ -18,3 +18,7 @@ char main(){
     return some_struct.b - some_struct.c;
 
 }
+
+char irq(){
+    
+}

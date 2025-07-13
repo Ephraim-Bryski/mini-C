@@ -10,3 +10,7 @@ char main(){
     }
     return c;
 }
+
+char irq(){
+    
+}

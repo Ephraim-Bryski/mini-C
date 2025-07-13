@@ -3,7 +3,7 @@ honestly might be easier just to make my own emulator for writing tests
 might even be nicer for debugging even then using platformio
 you would debug the emulator to debug the assembly
 """
-from architecture import *
+from compiler_architecture import *
 
 
 def emulate_assembly(assembly):
@@ -51,11 +51,6 @@ def emulate_assembly(assembly):
     CARRY_FLAG = 0
 
 
-    # TODO need to make sure the stack pointer value doesnt interfere with the
-        # SP address, or
-        # BP address
-    # right now it's just less than both so it's fine,
-    # but there could be a better way
     __INITIAL_STACK_POINTER__ = 255
 
 
@@ -277,7 +272,7 @@ def emulate_assembly(assembly):
 
         elif command == "ldd":
             destination = parts[1]
-            load_type_with_offset = parts[2].replace(" ","").replace("-","+-")
+            load_type_with_offset = parts[2].replace(" ","")
             [load_type, offset] = load_type_with_offset.split("+")
             offset = int(offset)
             if load_type != "X": raise Exception("for now just X loads allowed")
@@ -295,7 +290,7 @@ def emulate_assembly(assembly):
             address = address_high*256 + address_low
             MEMORY[address] = REGISTERS[source]
         elif command == "std":
-            load_type_with_offset = parts[1].replace(" ","").replace("-","+-")
+            load_type_with_offset = parts[1].replace(" ","")
             [load_type, offset] = load_type_with_offset.split("+")
             offset = int(offset)
             source = parts[2]

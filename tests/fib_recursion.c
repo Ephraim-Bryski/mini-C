@@ -12,3 +12,7 @@ char fib(char a){
 char main(){
     return fib(6);
 }
+
+char irq(){
+    
+}

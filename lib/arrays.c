@@ -118,13 +118,13 @@ struct Array concatenate(struct Array arr1, struct Array arr2){
 
 int print_array(struct Array array){
     
-    _print_char('[');
+    print_char('[');
     int idx;
     for (idx=0; idx<array.length; idx+=1){
         _print_int(array.items[idx]);
 
         if (idx+1 < array.length){
-            _print_char(',');
+            print_char(',');
         }
     }
     

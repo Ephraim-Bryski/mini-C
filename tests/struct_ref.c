@@ -18,3 +18,7 @@ char main(){
     
     return struct_ref -> a - struct_ref -> b;
 }
+
+char irq(){
+    
+}

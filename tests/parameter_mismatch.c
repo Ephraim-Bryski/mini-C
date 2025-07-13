@@ -5,3 +5,7 @@ char bop(char a, char b){
 char main(){
     return bop(4);
 }
+
+char irq(){
+    
+}

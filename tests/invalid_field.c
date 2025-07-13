@@ -9,3 +9,7 @@ char main(){
     struct A a;
     return a.d;
 }
+
+char irq(){
+    
+}

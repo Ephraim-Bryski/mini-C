@@ -9,3 +9,7 @@ char main(){
     a.an_array = some_array;
     return a.an_array[1] + a.an_array[2];
 }
+
+char irq(){
+    
+}
