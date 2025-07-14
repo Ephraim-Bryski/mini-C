@@ -29,21 +29,31 @@ main:
     lda #4
     pha
     
-; prepare indirect memory offset:
-    sec
-    lda 1
-    sbc #0
-    sta 3
-    lda 2
-    sbc #0
-    sta 4
+    ; store number
+    lda #30
+    pha
+    
+    ; store number
+    lda #20
+    pha
+    clc
+    tsx
+    stx 3
+    ldx #1 ; high byte of stack pointer
+    stx 4
     
 ; load indirect:
-    ldy #0
+    ldy #2
     lda (3),Y
-    
-; push variable on stack:
     pha
+    ldy #1
+    lda (3),Y
+    sta 5
+    pla
+    adc 5
+    ldy #2
+    sta (3),Y
+    pla
 ; pop unused expression ouput:
     pla
     

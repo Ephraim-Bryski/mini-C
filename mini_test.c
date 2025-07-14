@@ -2,7 +2,7 @@
 
 char main(){
     char a = 4;
-    a;
+    30+20;
 }
 char irq(){
 

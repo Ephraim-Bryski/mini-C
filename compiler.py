@@ -1788,6 +1788,7 @@ def set_stack_pointer_from_memory(address_low, address_high) -> list[str]:
             ]
         case _: assert False
 
+# FAST
 def set_stack_pointer_from_memory_with_offset(address_low, address_high, negative_offset) -> list[str]:
     """
     value in memory sent to stack pointer 
@@ -1814,6 +1815,7 @@ def set_stack_pointer_from_memory_with_offset(address_low, address_high, negativ
             ]
         case _: assert False
 
+# FAST
 def set_memory_from_stack_pointer(address_low, address_high) -> list[str]:
 
     """
@@ -1842,7 +1844,7 @@ def set_memory_from_stack_pointer(address_low, address_high) -> list[str]:
             ]
         case _: assert False
 
-
+# FAST
 def prepare_indirect_from_memory(address_low: int, address_high: int) -> list[str]:
     
     """
@@ -1864,7 +1866,7 @@ def prepare_indirect_from_memory(address_low: int, address_high: int) -> list[st
             f"sta {HIGH_INDIRECT_6502}",
         ]
 
-
+# FAST
 def prepare_indirect_from_memory_with_offset(address_low: int, address_high: int, negative_offset: int) -> list[str]:
     
     """
@@ -1904,7 +1906,7 @@ def prepare_indirect_from_memory_with_offset(address_low: int, address_high: int
         ]
 
 
-
+# FAST
 def prepare_indirect_from_stack_pointer() -> list[str]:
     if TARGET == Target.AVR:
         return [
@@ -1919,6 +1921,7 @@ def prepare_indirect_from_stack_pointer() -> list[str]:
             f"stx {HIGH_INDIRECT_6502}",
         ]
 
+# still needed for arrays, structs
 def load_indirect_with_offset(offset) -> list[str]:
     if TARGET == Target.AVR:
         return [f"ldd {TEMP_REG}, X+{offset}"]
@@ -1931,7 +1934,7 @@ def load_indirect_with_offset(offset) -> list[str]:
             f"lda ({LOW_INDIRECT_6502}),Y"
         ]
     
-
+# FAST
 def load_indirect_right_side_with_offset(offset) -> list[str]:
     if TARGET == Target.AVR:
         return [f"ldd {RIGHT_TEMP_REG}, X+{offset}"]
@@ -2546,16 +2549,7 @@ def get_array_assembly(target: Variable_Typed, array_literal: Array_Literal, var
 
 
 
-def get_base_pointer(is_global):
-
-    if is_global and TARGET is Target._6502:
-        return [0xff, 0x1]
-    elif is_global and TARGET is Target.AVR:
-        return [GLOBAL_P_ADDRESS_LOW, GLOBAL_P_ADDRESS_HIGH]
-    elif not is_global:
-        return [BP_ADDRESS_LOW, BP_ADDRESS_HIGH]
-    else: assert False
-
+# FAST
 def store_to_stack(offset_from_base_pointer: int, variable_size: int, is_global: bool) -> list[str]:
     
     """
@@ -2594,7 +2588,7 @@ def store_to_stack(offset_from_base_pointer: int, variable_size: int, is_global:
         assembly += store_indirect_with_offset(byte_idx)
     return assembly
 
-
+# FAST
 def load_from_stack(offset_from_base_pointer: int, variable_size: int, is_global: bool) -> list[str]:
 
     """
@@ -3405,7 +3399,7 @@ return
 
 
 
-
+# FAST
 def get_scope_exit_assembly():
 
     total_offset_from_bp = 0 
@@ -3620,6 +3614,7 @@ def get_function_assembly(function_block: Function_Block, variables: list[list[V
     assembly.append(f"{function_block.name}:")
 
 
+    # FAST - no longer needed, no longer using base pointer
     # the new base is right above the SP address pushed by the call
     assembly += [
         "",
@@ -3772,7 +3767,7 @@ def get_block_assembly(lines: list[list[Block]], variables: list[list[Variable_A
                 ]
                 
                     
-
+        # FAST - no longer using global pointer
         assembly += set_memory_from_stack_pointer(GLOBAL_P_ADDRESS_LOW, GLOBAL_P_ADDRESS_HIGH)
 
     for line in lines:
