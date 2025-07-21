@@ -1,2 +1,1 @@
-
-    assembly = f.read()
+get_

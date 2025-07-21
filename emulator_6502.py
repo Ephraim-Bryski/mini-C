@@ -471,7 +471,8 @@ def emulate_binary(binary):
         byte = binary[mapped_program_count]
         if byte == PRINT_CHAR_BYTE:
             char_to_print = CPU_STATE.memory[CPU_STATE.stack_pointer]
-            print(chr(char_to_print),end='')
+            # print(chr(char_to_print),end='')
+            print(char_to_print, chr(char_to_print))
             instruction_size = AddressModeSizes[AddressMode.Absolute]
         else:
             [instruction, address_mode] = find_instruction_type(byte)
@@ -491,7 +492,7 @@ def emulate_binary(binary):
     return CPU_STATE.accumulator
 
 if __name__ == "__main__":
-    assembly = compiler.compile("test.c")
+    assembly = compiler.compile("mini_test.c")
     # with open("test.S") as f:
     #     assembly = f.read()
     binary = assembler_6502.assemble(assembly, compare_with_vasm=False)

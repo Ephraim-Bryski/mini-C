@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 #-------- these are avr specific: -------#
 
 # for 6502 the sp is its own register
@@ -9,24 +11,47 @@ X_HIGH = "r27"
 
 
 
+
 #--------- BP is for both avr and 6502 -----------#
 
 # arbitrary address
-BP_ADDRESS_LOW = 1
-BP_ADDRESS_HIGH = BP_ADDRESS_LOW + 1
+BP_LOW = "BASE_P_LOW"
+BP_LOW_ADDRESS = 1
+
+BP_HIGH = "BASE_P_HIGH"
+BP_HIGH_ADDRESS = 2
 
 # for 6502 i just set it to 1ff, but easier to keep things consistent
-GLOBAL_P_ADDRESS_LOW = 6
-GLOBAL_P_ADDRESS_HIGH = GLOBAL_P_ADDRESS_LOW + 1
+GLOBAL_P_LOW = "GLOBAL_P_LOW"
+GLOBAL_P_LOW_ADDRESS = 3
+GLOBAL_P_HIGH = "GLOBAL_P_HIGH"
+GLOBAL_P_HIGH_ADDRESS = 4
 
 #---------- these are 6502 specific --------------#
 
 # in avr you use the x,y,or z register
-LOW_INDIRECT_6502 = 3
-HIGH_INDIRECT_6502 = 4
+LOW_INDIRECT_6502_BP = "LOW_INDIRECT_BP"
+LOW_INDIRECT_6502_ADDRESS_BP = 5
+HIGH_INDIRECT_6502_BP = "HIGH_INDIRECT_BP"
+HIGH_INDIRECT_6502_ADDRESS_BP = 6
+
+LOW_INDIRECT_6502_GP = "LOW_INDIRECT_GP"
+LOW_INDIRECT_6502_ADDRESS_GP = 7
+HIGH_INDIRECT_6502_GP = "HIGH_INDIRECT_GP"
+HIGH_INDIRECT_6502_ADDRESS_GP = 8
+
+
+LOW_INDIRECT_6502_ARRAY = "LOW_INDIRECT_ARRAY"
+LOW_INDIRECT_6502_ADDRESS_ARRAY = 9
+HIGH_INDIRECT_6502_ARRAY = "HIGH_INDIRECT_ARRAY"
+HIGH_INDIRECT_6502_ADDRESS_ARRAY = 10
+
 
 # i'm using r30 for the right side
-RIGHT_SIDE_6502 = 5
+RIGHT_SIDE_6502 = "RIGHT_SIDE"
+RIGHT_SIDE_6502_ADDRESS = 11
+
+
 
 
 

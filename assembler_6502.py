@@ -264,7 +264,7 @@ def fill_in_label_placeholders():
                 next_instruction_location = byte_idx + 1
                 value = label_address.binary_idx - next_instruction_location
                 if value < -128 or value > 127:
-                    raise Exception("branched too far away")
+                    raise Exception(f"branched too far away: {value}")
                 if value < 0: value = 256 + value
             case _: assert False
 

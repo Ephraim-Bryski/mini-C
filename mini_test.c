@@ -1,9 +1,9 @@
-
+char A = 4;
 
 char main(){
-    char a = 4;
-    30+20;
+    A;
 }
-char irq(){
 
+char irq(){
+    
 }

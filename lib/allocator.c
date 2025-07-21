@@ -161,40 +161,40 @@ int my_free(int* ptr_to_free){
 
 
 
-int print_allocations(){
+// int print_allocations(){
 
-    print_newline();
-    print_string("number of allocations: ");
-    _print_int(COUNT_LOCATION()[0]);
-    print_newline();
+//     print_newline();
+//     print_string("number of allocations: ");
+//     _print_int(COUNT_LOCATION()[0]);
+//     print_newline();
     
-    int i;
-    for (i=0;i<COUNT_LOCATION()[0];i+=1){
+//     int i;
+//     for (i=0;i<COUNT_LOCATION()[0];i+=1){
 
-        struct bk_block block = BK_LOCATION()[i];
-        int relative_start = (int)block.start-(int)HEAP_BASE;
-        int relative_end = (int)block.end-(int)HEAP_BASE;
-        _print_int(relative_start);
-        print_string(" to ");
-        _print_int(relative_end);
-        print_string(" [");
+//         struct bk_block block = BK_LOCATION()[i];
+//         int relative_start = (int)block.start-(int)HEAP_BASE;
+//         int relative_end = (int)block.end-(int)HEAP_BASE;
+//         _print_int(relative_start);
+//         print_string(" to ");
+//         _print_int(relative_end);
+//         print_string(" [");
         
 
-        int location;
+//         int location;
 
-        for (location = (int) block.start; location< (int) block.end; location+=int_size){
-            int* location_address = (int*) location;
-            _print_int(location_address[0]);
-            print_char(',');
-        }
+//         for (location = (int) block.start; location< (int) block.end; location+=int_size){
+//             int* location_address = (int*) location;
+//             _print_int(location_address[0]);
+//             print_char(',');
+//         }
         
         
-        print_string("]");
-        print_newline();
-    }
+//         print_string("]");
+//         print_newline();
+//     }
 
-    print_newline();
+//     print_newline();
 
-}
+// }
 
 
