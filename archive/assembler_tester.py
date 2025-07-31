@@ -3,7 +3,7 @@ this test is now done in my assembler
 """
 
 import subprocess
-import assembler_6502
+import assembler.assembler_6502 as assembler_6502
 
 
 assembly_file = "compiler/main.S"
