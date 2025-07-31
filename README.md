@@ -7,6 +7,6 @@ Mini-C supports:
 * Nested data structures (e.g. arrays of structs)
 * Pointer reference and dereference (zero index for dereference)
 
-There's also an assembler and emulator, used for a test suite. \
+There's also an assembler and emulator, used for a test suite.
 
 I have a small library of programs written in mini-C, including a basic memory allocator. The library also includes routines for interfacing with the LCD in Ben Eater's 6502. I was able to run basic programs on the 6502, including an (extremely basic) game.
