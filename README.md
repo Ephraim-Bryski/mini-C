@@ -10,3 +10,6 @@ Mini-C supports:
 There's also an assembler and emulator, used for a test suite.
 
 I have a small library of programs written in mini-C, including a basic memory allocator. The library also includes routines for interfacing with the LCD in Ben Eater's 6502. I was able to run basic programs on the 6502, including an (extremely basic) game, and a very basic text editor (connecting to a ps2 keyboard).
+
+
+![IMG_20250928_113539030_HDR](https://github.com/user-attachments/assets/03e488d5-d335-40d2-a7a6-7d6a3dbc150b)
